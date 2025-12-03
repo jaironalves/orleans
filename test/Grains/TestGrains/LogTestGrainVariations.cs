@@ -31,7 +31,7 @@ namespace TestGrains
     {
     }
 
-    // use the explictly specified "CustomStorage" log-consistency provider with symmetric access from all clusters
+    // use the explicitly specified "CustomStorage" log-consistency provider with symmetric access from all clusters
     [LogConsistencyProvider(ProviderName = "CustomStorage")]
     public class LogTestGrainCustomStorage : LogTestGrain,
         Orleans.EventSourcing.CustomStorage.ICustomStorageInterface<MyGrainState, object>
@@ -62,7 +62,7 @@ namespace TestGrains
         }
     }
 
-    // use the explictly specified "CustomStorage" log-consistency provider with access from primary cluster only
+    // use the explicitly specified "CustomStorage" log-consistency provider with access from primary cluster only
     [LogConsistencyProvider(ProviderName = "CustomStoragePrimaryCluster")]
     public class LogTestGrainCustomStoragePrimaryCluster : LogTestGrain,
         Orleans.EventSourcing.CustomStorage.ICustomStorageInterface<MyGrainState, object>
