@@ -6,14 +6,14 @@ namespace TestGrains
 {
     // variations of the log consistent grain are used to test a variety of provider and configurations
 
-    // use azure storage and a explicitly configured consistency provider
+    // use explicitly configured storage and consistency provider
     [StorageProvider(ProviderName = "AzureStore")]
     [LogConsistencyProvider(ProviderName = "StateStorage")]
     public class LogTestGrainSharedStateStorage : LogTestGrain
     {
     }
 
-    // use azure storage and a explicitly configured consistency provider
+    // use explicitly configured storage and consistency provider
     [StorageProvider(ProviderName = "AzureStore")]
     [LogConsistencyProvider(ProviderName = "LogStorage")]
     public class LogTestGrainSharedLogStorage : LogTestGrain
