@@ -33,6 +33,7 @@ namespace Orleans.Persistence
         private readonly Func<string, GrainId, RedisKey> _getKeyFunc;
         private IConnectionMultiplexer _connection;
         private IDatabase _db;
+        private RedisOperationsManager _redisOps;
 
         /// <summary>
         /// Creates a new instance of the <see cref="RedisGrainStorage"/> type.
@@ -73,6 +74,7 @@ namespace Orleans.Persistence
 
                 _connection = await _options.CreateMultiplexer(_options).ConfigureAwait(false);
                 _db = _connection.GetDatabase();
+                _redisOps = new RedisOperationsManager(_db);
 
                 var elapsed = Stopwatch.GetElapsedTime(startTime);
                 LogDebugInitialized(_name, _serviceId, elapsed.TotalMilliseconds);
@@ -92,7 +94,7 @@ namespace Orleans.Persistence
 
             try
             {
-                var hashEntries = await _db.HashGetAllAsync(key).ConfigureAwait(false);
+                var hashEntries = await _redisOps.HashGetAllAsync(key).ConfigureAwait(false);
                 if (hashEntries.Length == 2)
                 {
                     string eTag = hashEntries.Single(static e => e.Name == "etag").Value;
@@ -150,7 +152,7 @@ namespace Orleans.Persistence
                 RedisValue payload = _grainStorageSerializer.Serialize<T>(grainState.State).ToMemory();
                 var keys = new RedisKey[] { key };
                 var args = new RedisValue[] { etag, newEtag, payload, _ttl };
-                var response = await _db.ScriptEvaluateAsync(WriteScript, keys, args).ConfigureAwait(false);
+                var response = await _redisOps.ScriptEvaluateAsync(WriteScript, keys, args).ConfigureAwait(false);
 
                 if (response is not null && (int)response == -1)
                 {
@@ -217,7 +219,7 @@ namespace Orleans.Persistence
                           return -1
                         end
                         """;
-                    response = await _db.ScriptEvaluateAsync(DeleteScript, keys: new[] { key }, values: new[] { etag }).ConfigureAwait(false);
+                    response = await _redisOps.ScriptEvaluateAsync(DeleteScript, keys: new[] { key }, values: new[] { etag }).ConfigureAwait(false);
                     newETag = null;
                 }
                 else
@@ -233,7 +235,7 @@ namespace Orleans.Persistence
                         end
                         """;
                     newETag = Guid.NewGuid().ToString("N");
-                    response = await _db.ScriptEvaluateAsync(ClearScript, keys: new[] { key }, values: new RedisValue[] { etag, newETag }).ConfigureAwait(false);
+                    response = await _redisOps.ScriptEvaluateAsync(ClearScript, keys: new[] { key }, values: new RedisValue[] { etag, newETag }).ConfigureAwait(false);
                 }
 
                 if (response is not null && (int)response == -1)
