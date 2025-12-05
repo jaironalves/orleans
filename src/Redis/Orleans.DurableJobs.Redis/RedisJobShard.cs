@@ -17,6 +17,7 @@ internal sealed partial class RedisJobShard : JobShard
 {
     private readonly IConnectionMultiplexer _redis;
     private readonly IDatabase _db;
+    private readonly RedisOperationsManager _redisOps;
     private readonly Channel<StorageOperation> _storageOperationChannel;
     private readonly Task _storageProcessorTask;
     private readonly CancellationTokenSource _shutdownCts = new();
@@ -84,6 +85,7 @@ internal sealed partial class RedisJobShard : JobShard
     {
         _redis = redis ?? throw new ArgumentNullException(nameof(redis));
         _db = _redis.GetDatabase();
+        _redisOps = new RedisOperationsManager(_db);
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         Metadata = metadata;
@@ -120,7 +122,7 @@ internal sealed partial class RedisJobShard : JobShard
         var jobRetryCounters = new Dictionary<string, (int dequeueCount, DateTimeOffset? newDueTime)>();
 
         // StreamRange with "-" .. "+" returns all entries. If stream does not exist, returns empty.
-        var streamEntries = _db.StreamRange(_streamKey, "-", "+");
+        var streamEntries = _redisOps.StreamRange(_streamKey, "-", "+");
 
         await foreach (var operation in RedisStreamJsonSerializer<JobOperation>.DecodeAsync(streamEntries, JobOperationJsonContext.Default.JobOperation, cancellationToken))
         {
@@ -321,7 +323,7 @@ internal sealed partial class RedisJobShard : JobShard
         args[0] = payloads.Length;
         for (int i = 0; i < payloads.Length; i++) args[i + 1] = payloads[i];
 
-        var result = await _db.ScriptEvaluateAsync(MultiXAddLua, new RedisKey[] { _streamKey }, args);
+        var result = await _redisOps.ScriptEvaluateAsync(MultiXAddLua, new RedisKey[] { _streamKey }, args);
         // result is array of ids, but we don't use them for now
         sw.Stop();
         LogBatchWritten(_logger, operations.Count, Id, sw.ElapsedMilliseconds, -1);
@@ -331,7 +333,7 @@ internal sealed partial class RedisJobShard : JobShard
     {
         var newVersion = (expectedVersion + 1).ToString();
         var fieldsJson = JsonSerializer.Serialize(metadata);
-        var res = await _db.ScriptEvaluateAsync(UpdateMetaLua, new RedisKey[] { _metaKey }, new RedisValue[] { expectedVersion.ToString(), newVersion, fieldsJson });
+        var res = await _redisOps.ScriptEvaluateAsync(UpdateMetaLua, new RedisKey[] { _metaKey }, new RedisValue[] { expectedVersion.ToString(), newVersion, fieldsJson });
         var ok = (int)res == 1;
         if (ok)
         {

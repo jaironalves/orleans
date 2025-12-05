@@ -27,6 +27,7 @@ public sealed partial class RedisJobShardManager : JobShardManager
 
     private IConnectionMultiplexer? _multiplexer;
     private IDatabase? _db;
+    private RedisOperationsManager? _redisOps;
 
     // in-memory cache of owned shards
     private readonly ConcurrentDictionary<string, RedisJobShard> _jobShardCache = new();
@@ -107,6 +108,7 @@ public sealed partial class RedisJobShardManager : JobShardManager
         LogInitializing(_logger, _options.ShardPrefix);
         _multiplexer = await _options.CreateMultiplexer(_options).ConfigureAwait(false);
         _db = _multiplexer.GetDatabase();
+        _redisOps = new RedisOperationsManager(_db);
         LogInitialized(_logger);
     }
 
@@ -121,7 +123,7 @@ public sealed partial class RedisJobShardManager : JobShardManager
         var result = new List<IJobShard>();
 
         // get all shard ids
-        var members = await _db!.SetMembersAsync(ShardSetKey).ConfigureAwait(false);
+        var members = await _redisOps!.SetMembersAsync(ShardSetKey).ConfigureAwait(false);
         var shardIds = members.Select(rv => rv.ToString()).ToArray();
 
         foreach (var shardId in shardIds)
@@ -129,7 +131,7 @@ public sealed partial class RedisJobShardManager : JobShardManager
             cancellationToken.ThrowIfCancellationRequested();
 
             var metaKey = MetaKeyForShard(shardId);
-            var entries = await _db.HashGetAllAsync(metaKey).ConfigureAwait(false);
+            var entries = await _redisOps.HashGetAllAsync(metaKey).ConfigureAwait(false);
             var metadata = HashEntriesToDictionary(entries);
 
             // parse values
@@ -271,7 +273,7 @@ public sealed partial class RedisJobShardManager : JobShardManager
             try
             {
                 var metadataJson = JsonSerializer.Serialize(metadataInfo);
-                var res = (int)await _db!.ScriptEvaluateAsync(CreateShardLua,
+                var res = (int)await _redisOps!.ScriptEvaluateAsync(CreateShardLua,
                     new RedisKey[] { metaKey, ShardSetKey },
                     new RedisValue[] {
                         shardId,
@@ -367,17 +369,17 @@ public sealed partial class RedisJobShardManager : JobShardManager
         var leaseKey = $"durablejobs:shard:{shardId}:lease";
 
         // Delete all shard-related keys
-        await _db!.KeyDeleteAsync(new RedisKey[] { streamKey, metaKey, leaseKey }).ConfigureAwait(false);
+        await _redisOps!.KeyDeleteAsync(new RedisKey[] { streamKey, metaKey, leaseKey }).ConfigureAwait(false);
 
         // Remove from the shard set
-        await _db.SetRemoveAsync(ShardSetKey, shardId).ConfigureAwait(false);
+        await _redisOps.SetRemoveAsync(ShardSetKey, shardId).ConfigureAwait(false);
     }
 
     private async Task<bool> TryTakeOwnershipAsync(string shardId, string expectedVersion, SiloAddress newOwner, MembershipVersion membershipVersion, CancellationToken cancellationToken)
     {
         await InitializeIfNeeded(cancellationToken).ConfigureAwait(false);
         var metaKey = MetaKeyForShard(shardId);
-        var res = (int)await _db!.ScriptEvaluateAsync(TryTakeOwnershipLua,
+        var res = (int)await _redisOps!.ScriptEvaluateAsync(TryTakeOwnershipLua,
             new RedisKey[] { metaKey },
             new RedisValue[] { expectedVersion ?? "0", newOwner.ToParsableString(), membershipVersion.Value.ToString() }).ConfigureAwait(false);
         return res == 1;
@@ -387,11 +389,11 @@ public sealed partial class RedisJobShardManager : JobShardManager
     {
         await InitializeIfNeeded(cancellationToken).ConfigureAwait(false);
         var metaKey = MetaKeyForShard(shardId);
-        var entries = await _db!.HashGetAllAsync(metaKey).ConfigureAwait(false);
+        var entries = await _redisOps!.HashGetAllAsync(metaKey).ConfigureAwait(false);
         var metadata = HashEntriesToDictionary(entries);
         var version = metadata.TryGetValue("version", out var v) ? v : "0";
 
-        var res = (int)await _db.ScriptEvaluateAsync(ReleaseOwnershipLua, new RedisKey[] { metaKey }, new RedisValue[] { version }).ConfigureAwait(false);
+        var res = (int)await _redisOps.ScriptEvaluateAsync(ReleaseOwnershipLua, new RedisKey[] { metaKey }, new RedisValue[] { version }).ConfigureAwait(false);
         return res == 1;
     }
 

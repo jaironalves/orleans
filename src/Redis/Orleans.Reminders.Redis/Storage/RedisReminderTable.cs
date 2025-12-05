@@ -26,6 +26,7 @@ namespace Orleans.Reminders.Redis
         private readonly ILogger _logger;
         private IConnectionMultiplexer _muxer;
         private IDatabase _db;
+        private RedisOperationsManager _redisOps;
 
         private readonly JsonSerializerSettings _jsonSettings = new JsonSerializerSettings()
         {
@@ -53,10 +54,11 @@ namespace Orleans.Reminders.Redis
             {
                 _muxer = await _redisOptions.CreateMultiplexer(_redisOptions);
                 _db = _muxer.GetDatabase();
+                _redisOps = new RedisOperationsManager(_db);
 
                 if (_redisOptions.EntryExpiry is { } expiry)
                 {
-                    await _db.KeyExpireAsync(_hashSetKey, expiry);
+                    await _redisOps.KeyExpireAsync(_hashSetKey, expiry);
                 }
             }
             catch (Exception exception)
@@ -70,7 +72,7 @@ namespace Orleans.Reminders.Redis
             try
             {
                 var (from, to) = GetFilter(grainId, reminderName);
-                RedisValue[] values = await _db.SortedSetRangeByValueAsync(_hashSetKey, from, to);
+                RedisValue[] values = await _redisOps.SortedSetRangeByValueAsync(_hashSetKey, from, to);
                 if (values.Length == 0)
                 {
                     return null;
@@ -91,7 +93,7 @@ namespace Orleans.Reminders.Redis
             try
             {
                 var (from, to) = GetFilter(grainId);
-                RedisValue[] values = await _db.SortedSetRangeByValueAsync(_hashSetKey, from, to);
+                RedisValue[] values = await _redisOps.SortedSetRangeByValueAsync(_hashSetKey, from, to);
                 IEnumerable<ReminderEntry> records = values.Select(static v => ConvertToEntry(v));
                 return new ReminderTableData(records);
             }
@@ -111,13 +113,13 @@ namespace Orleans.Reminders.Redis
                 if (begin < end)
                 {
                     // -----begin******end-----
-                    values = await _db.SortedSetRangeByValueAsync(_hashSetKey, from, to);
+                    values = await _redisOps.SortedSetRangeByValueAsync(_hashSetKey, from, to);
                 }
                 else
                 {
                     // *****end------begin*****
-                    RedisValue[] values1 = await _db.SortedSetRangeByValueAsync(_hashSetKey, from, "\"FFFFFFFF\",#");
-                    RedisValue[] values2 = await _db.SortedSetRangeByValueAsync(_hashSetKey, "\"00000000\",\"", to);
+                    RedisValue[] values1 = await _redisOps.SortedSetRangeByValueAsync(_hashSetKey, from, "\"FFFFFFFF\",#");
+                    RedisValue[] values2 = await _redisOps.SortedSetRangeByValueAsync(_hashSetKey, "\"00000000\",\"", to);
                     values = values1.Concat(values2);
                 }
 
@@ -135,7 +137,7 @@ namespace Orleans.Reminders.Redis
             try
             {
                 var (from, to) = GetFilter(grainId, reminderName, eTag);
-                long removed = await _db.SortedSetRemoveRangeByValueAsync(_hashSetKey, from, to);
+                long removed = await _redisOps.SortedSetRemoveRangeByValueAsync(_hashSetKey, from, to);
                 return removed > 0;
             }
             catch (Exception exception)
@@ -148,7 +150,7 @@ namespace Orleans.Reminders.Redis
         {
             try
             {
-                await _db.KeyDeleteAsync(_hashSetKey);
+                await _redisOps.KeyDeleteAsync(_hashSetKey);
             }
             catch (Exception exception)
             {
@@ -179,7 +181,7 @@ namespace Orleans.Reminders.Redis
 
                 var (newETag, value) = ConvertFromEntry(entry);
                 var (from, to) = GetFilter(entry.GrainId, entry.ReminderName);
-                var res = await _db.ScriptEvaluateAsync(UpsertScript, keys: new[] { _hashSetKey }, values: new[] { from, to, value });
+                var res = await _redisOps.ScriptEvaluateAsync(UpsertScript, keys: new[] { _hashSetKey }, values: new[] { from, to, value });
                 return newETag;
             }
             catch (Exception exception) when (exception is not ReminderException)

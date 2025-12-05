@@ -22,6 +22,7 @@ namespace Orleans.Clustering.Redis
         private readonly RedisKey _clusterKey;
         private IConnectionMultiplexer _muxer = null!;
         private IDatabase _db = null!;
+        private RedisOperationsManager _redisOps = null!;
 
         public RedisMembershipTable(IOptions<RedisClusteringOptions> redisOptions, IOptions<ClusterOptions> clusterOptions)
         {
@@ -35,21 +36,22 @@ namespace Orleans.Clustering.Redis
 
         public async Task DeleteMembershipTableEntries(string clusterId)
         {
-            await _db.KeyDeleteAsync(_clusterKey);
+            await _redisOps.KeyDeleteAsync(_clusterKey);
         }
 
         public async Task InitializeMembershipTable(bool tryInitTableVersion)
         {
             _muxer = await _redisOptions.CreateMultiplexer(_redisOptions);
             _db = _muxer.GetDatabase();
+            _redisOps = new RedisOperationsManager(_db);
 
             if (tryInitTableVersion)
             {
-                await _db.HashSetAsync(_clusterKey, TableVersionKey, SerializeVersion(DefaultTableVersion), When.NotExists);
+                await _redisOps.HashSetAsync(_clusterKey, TableVersionKey, SerializeVersion(DefaultTableVersion), When.NotExists);
 
                 if (_redisOptions.EntryExpiry is { } expiry)
                 {
-                    await _db.KeyExpireAsync(_clusterKey, expiry);
+                    await _redisOps.KeyExpireAsync(_clusterKey, expiry);
                 }
             }
 
@@ -107,7 +109,7 @@ namespace Orleans.Clustering.Redis
 
         public async Task<MembershipTableData> ReadAll()
         {
-            var all = await _db.HashGetAllAsync(_clusterKey);
+            var all = await _redisOps.HashGetAllAsync(_clusterKey);
             var tableVersionRow = all.SingleOrDefault(h => TableVersionKey.Equals(h.Name, StringComparison.Ordinal));
             TableVersion tableVersion = GetTableVersionFromRow(tableVersionRow.Value);
 
@@ -209,7 +211,7 @@ namespace Orleans.Clustering.Redis
                 if (entry.Status != SiloStatus.Active
                     && new DateTime(Math.Max(entry.IAmAliveTime.Ticks, entry.StartTime.Ticks), DateTimeKind.Utc) < beforeDate)
                 {
-                    await _db.HashDeleteAsync(_clusterKey, entry.SiloAddress.ToString());
+                    await _redisOps.HashDeleteAsync(_clusterKey, entry.SiloAddress.ToString());
                 }
             }
         }

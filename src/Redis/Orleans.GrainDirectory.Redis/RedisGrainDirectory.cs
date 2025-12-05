@@ -26,6 +26,7 @@ namespace Orleans.GrainDirectory.Redis
         // Both are initialized in the Initialize method.
         private IConnectionMultiplexer _redis = null!;
         private IDatabase _database = null!;
+        private RedisOperationsManager _redisOps = null!;
 
         private bool _disposed;
 
@@ -45,7 +46,7 @@ namespace Orleans.GrainDirectory.Redis
         {
             try
             {
-                var result = _disposed ? null : (string?)await _database.StringGetAsync(GetKey(grainId));
+                var result = _disposed ? null : (string?)await _redisOps.StringGetAsync(GetKey(grainId));
 
                 LogDebugLookup(grainId, string.IsNullOrWhiteSpace(result) ? "null" : result);
 
@@ -98,7 +99,7 @@ namespace Orleans.GrainDirectory.Redis
 
                 var previousActivationId = previousAddress is { } ? previousAddress.ActivationId.ToString() : "";
                 var key = GetKey(address.GrainId);
-                var entryString = (string?)await _database.ScriptEvaluateAsync(
+                var entryString = (string?)await _redisOps.ScriptEvaluateAsync(
                     RegisterScript,
                     keys: new RedisKey[] { key },
                     values: new RedisValue[] { value, previousActivationId, _ttl })!;
@@ -148,7 +149,7 @@ namespace Orleans.GrainDirectory.Redis
                 ObjectDisposedException.ThrowIf(_disposed, _database);
 
                 var value = JsonSerializer.Serialize(address);
-                var result = (int)await _database.ScriptEvaluateAsync(
+                var result = (int)await _redisOps.ScriptEvaluateAsync(
                     DeleteScript,
                     keys: new RedisKey[] { GetKey(address.GrainId) },
                     values: new RedisValue[] { address.ActivationId.ToString() });
@@ -187,6 +188,7 @@ namespace Orleans.GrainDirectory.Redis
             _redis.InternalError += LogInternalError;
 
             _database = _redis.GetDatabase();
+            _redisOps = new RedisOperationsManager(_database);
         }
 
         private async Task Uninitialize(CancellationToken arg)
