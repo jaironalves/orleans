@@ -179,7 +179,7 @@ namespace Orleans.Persistence.Redis
         #region Key Operations
 
         /// <summary>
-        /// Deletes the specified keys.
+        /// Deletes the specified key.
         /// </summary>
         /// <param name="key">The key to delete.</param>
         /// <param name="flags">The command flags.</param>
